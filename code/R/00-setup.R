@@ -28,7 +28,8 @@ packages <- c(
     "benchmarkme",
     "zoo",
     "geodist",
-    "birk"
+    "birk",
+    "jsonlite"
 )
 
 installed <- packages %in% rownames(installed.packages())
