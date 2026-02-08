@@ -72,6 +72,7 @@ load_openfoodfacts_data <- function(
 
     return(data)
 }
+
 #' Load AiMark Barcode Mapping Data
 #'
 #' @description

@@ -52,13 +52,14 @@ check_barcode <- function(data_barcode) {
 #'
 #' @description
 #' Checks what percentage of product codes in the purchase data are present
-#' in the barcode mapping data.
+#' in the barcode mapping data. Reports overall coverage and coverage by year.
 #'
-#' @param data_purchase A data.table containing purchase data with a 'product_code' column.
+#' @param data_purchase A data.table containing purchase data with 'product_code' and 'date_of_purchase' columns.
 #' @param data_barcode A data.table containing barcode mapping data with a 'product' column.
 #'
 #' @return A list containing:
-#'   - coverage_stats: A named vector with counts and percentages.
+#'   - overall_stats: A named vector with overall counts and percentages.
+#'   - yearly_stats: A data.table with coverage statistics per year.
 #'   - missing_products: A vector of product codes found in purchase data but missing from barcode data.
 #'
 #' @export
@@ -71,33 +72,69 @@ check_product_coverage <- function(data_purchase, data_barcode) {
   if (!"product_code" %in% names(data_purchase)) stop("Purchase data must have 'product_code' column.")
   if (!"product" %in% names(data_barcode)) stop("Barcode data must have 'product' column.")
   
-  # Get unique product codes
-  purchase_products <- unique(data_purchase$product_code)
+  # Extract year from Date_of_purchase if not already present
+  if (!"year" %in% names(data_purchase)) {
+      if ("Date_of_purchase" %in% names(data_purchase)) {
+          # Try to parse date. Assuming YYYY-MM-DD or similar standard format
+          # If it's integer YYYYMMDD, handle that too
+          if (is.numeric(data_purchase$Date_of_purchase)) {
+             # Assuming YYYYMMDD
+             data_purchase[, year := as.integer(substr(as.character(Date_of_purchase), 1, 4))]
+          } else {
+             data_purchase[, year := data.table::year(as.Date(Date_of_purchase))]
+          }
+      } else {
+          warning("No 'year' or 'Date_of_purchase' column found. Yearly stats will be skipped.")
+      }
+  }
+
   barcode_products <- unique(data_barcode$product)
   
-  # Calculate coverage
+  # --- Overall Coverage ---
+  purchase_products <- unique(data_purchase$product_code)
   n_purchase <- length(purchase_products)
   matched_products <- intersect(purchase_products, barcode_products)
   n_matched <- length(matched_products)
   n_missing <- n_purchase - n_matched
   missing_products <- setdiff(purchase_products, barcode_products)
-  
-  # Calculate percentage
   pct_covered <- if (n_purchase > 0) (n_matched / n_purchase) * 100 else 0
   
-  # Print report
+  # Print Overall Report
   message("Product Code Coverage Summary:")
-  message(sprintf("Total Unique Products in Purchase Data: %d", n_purchase))
-  message(sprintf("Products Found in Barcode Data: %d (%.2f%%)", n_matched, pct_covered))
-  message(sprintf("Products Missing from Barcode Data: %d", n_missing))
+  message("-------------------------------")
+  message("Overall:")
+  message(sprintf("  Total Unique Products: %d", n_purchase))
+  message(sprintf("  Matched: %d (%.2f%%)", n_matched, pct_covered))
+  message(sprintf("  Missing: %d", n_missing))
+  
+  # --- Yearly Coverage ---
+  yearly_stats <- NULL
+  if ("year" %in% names(data_purchase)) {
+      message("\nCoverage by Year:")
+      
+      # Calculate stats by year
+      yearly_stats <- data_purchase[, .(
+          total_products = data.table::uniqueN(product_code),
+          matched_products = length(intersect(unique(product_code), barcode_products))
+      ), by = year][order(year)]
+      
+      yearly_stats[, `:=`(
+          missing_products = total_products - matched_products,
+          pct_covered = (matched_products / total_products) * 100
+      )]
+      
+      # Print yearly stats
+      print(yearly_stats)
+  }
   
   return(list(
-    coverage_stats = c(
+    overall_stats = c(
       total_purchase_products = n_purchase,
       matched_products = n_matched,
       missing_products = n_missing,
       pct_covered = pct_covered
     ),
+    yearly_stats = yearly_stats,
     missing_products = missing_products
   ))
 }
