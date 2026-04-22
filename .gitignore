@@ -1,3 +1,69 @@
+# ==============================================================================
+# .gitignore — AdsBan project
+# Merged from template (claude-code-my-workflow v1.7.0+) + project-specific rules
+# ==============================================================================
+
+# --- Project data (raw + cached) ---
+# All raw data lives on external storage (Dropbox via Parallels) and cached .fst
+# files; do not commit. Re-check later if small documentation files under data/
+# should be tracked (e.g. data_description.md).
 data/
+
+# --- LaTeX build artifacts ---
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.vrb
+*.synctex.gz
+*.run.xml
+*-blx.bib
+# *.pdf   # uncomment to ignore compiled PDFs
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- R ---
+.Rproj.user/
+.Rhistory
+.RData
+.Rdata
+
+# --- OS files ---
 .DS_Store
+Thumbs.db
+
+# --- Scratch ---
 test.R
+
+# --- Claude Code local files (per-machine, not shared) ---
+.claude/settings.local.json
+.claude/state/
+CLAUDE.local.md
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Quarto rendering artifacts ---
+.quarto/
+
+# --- R analysis outputs (generated artifacts; keep scripts, ignore outputs) ---
+scripts/R/_outputs/
+
+# --- Upstream template reference (symlink kept for diffing; don't add to index) ---
+claude-code-my-workflow
+
+# Note: quality_reports/{plans,specs,session_logs,merges,decisions} ARE tracked
+# in this working project (unlike in the upstream template, which ignores them).
