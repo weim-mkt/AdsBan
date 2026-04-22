@@ -4,10 +4,14 @@
 # ==============================================================================
 
 # --- Project data (raw + cached) ---
-# All raw data lives on external storage (Dropbox via Parallels) and cached .fst
-# files; do not commit. Re-check later if small documentation files under data/
-# should be tracked (e.g. data_description.md).
-data/
+# Raw data lives on external storage (Dropbox via Parallels) and cached .fst
+# files; do not commit. Small documentation files under data/ ARE tracked
+# via the un-ignore rules below. Pattern is `data/**` (contents) rather than
+# `data/` (directory) because git cannot re-include files whose parent dir
+# is excluded.
+data/**
+!data/data_description.md
+!data/openfoodfacts_names.txt
 
 # --- LaTeX build artifacts ---
 *.aux
