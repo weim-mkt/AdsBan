@@ -110,3 +110,48 @@ The Open Food Facts dataset contains over 300 variables. Below is a categorizati
 
 ### 7. System & Internal
 *   `_keywords`, `sortkey`, `max_imgid`, `last_image_t`, `lc` (language code), `interface_version`.
+
+## MongoDB Dump Setup (for `extract_openfoodfacts_data()`)
+
+The `extract_openfoodfacts_data()` helper in [`code/R/01-clean_data.R`](../code/R/01-clean_data.R) reads from a local MongoDB instance populated from the Open Food Facts archive at `data/raw data/openfoodfacts/openfoodfacts-mongodbdump`. The raw dump is ~60 GB, so we ingest it **once** into Mongo and then cache projected field subsets to `data/raw data/raw fst/openfoodfacts_<fields_tag>.fst` for fast reloads.
+
+### One-time: start `mongod` on port 27018
+
+```bash
+sudo -u mongod mongod --port 27018 --dbpath /var/lib/mongo-27018 \
+    --bind_ip 127.0.0.1 --fork --logpath /var/log/mongodb/mongod-27018.log
+```
+
+- `--dbpath /var/lib/mongo-27018` — where Mongo writes its on-disk database files. This directory must exist and be owned by the `mongod` user. Data persists across R sessions, `mongod` restarts, and host reboots.
+- `--port 27018` — matches the R helper's default `mongo_url = "mongodb://localhost:27018"`. Using a non-standard port avoids colliding with a default Mongo install on 27017.
+- `--bind_ip 127.0.0.1` — localhost only.
+- `--fork --logpath ...` — daemonizes the process; logs go to the file instead of the terminal.
+
+### After a reboot
+
+`--fork` does **not** auto-start `mongod` on reboot. Re-run the same command (the data under `/var/lib/mongo-27018` is still there — no reload needed). To check whether it's already running:
+
+```bash
+pgrep -af "mongod.*27018"
+```
+
+To confirm the collection survived:
+
+```bash
+mongosh "mongodb://localhost:27018" --eval 'db.getSiblingDB("off").products.countDocuments()'
+```
+
+Expect ~3M documents. If it returns `0`, the collection was dropped or `--dbpath` points at a fresh directory — in that case `extract_openfoodfacts_data()` will automatically run `mongorestore` from the dump on the next call.
+
+### Re-caching fst for a new field set
+
+`extract_openfoodfacts_data()` caches per field set. To pull different fields (or rebuild an existing cache) without re-ingesting the dump:
+
+```r
+data_openfoodfacts <- extract_openfoodfacts_data(
+    fields = c("countries", "code", "_id", "ean", "upc"),
+    force_cache = TRUE
+)
+```
+
+The function queries Mongo directly (no `mongorestore`) whenever the collection already has data, so this is fast — on the order of minutes, not hours.
