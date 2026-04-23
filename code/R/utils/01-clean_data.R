@@ -15,36 +15,43 @@ check_barcode <- function(data_barcode) {
   if (!data.table::is.data.table(data_barcode)) {
     data_barcode <- data.table::as.data.table(data_barcode)
   }
-  
+
   # Check required columns
   required_cols <- c("product", "barcode")
   if (!all(required_cols %in% names(data_barcode))) {
     stop("Input data must contain 'product' and 'barcode' columns.")
   }
-  
+
   # Calculate unique barcodes per product
-  summary_dt <- data_barcode[, .(
-    n_barcodes = data.table::uniqueN(barcode),
-    barcodes_list = list(unique(barcode))
-  ), by = product]
-  
+  summary_dt <- data_barcode[,
+    .(
+      n_barcodes = data.table::uniqueN(barcode),
+      barcodes_list = list(unique(barcode))
+    ),
+    by = product
+  ]
+
   # Add uniqueness flag
   summary_dt[, is_unique_mapping := n_barcodes == 1]
-  
+
   # Print summary report
   total_products <- nrow(summary_dt)
   unique_mapping_count <- sum(summary_dt$is_unique_mapping)
   multiple_mapping_count <- total_products - unique_mapping_count
-  
+
   message("Barcode Mapping Check Summary:")
   message(sprintf("Total Products: %d", total_products))
-  message(sprintf("Products with Unique Barcode: %d (%.2f%%)", 
-                  unique_mapping_count, 
-                  100 * unique_mapping_count / total_products))
-  message(sprintf("Products with Multiple Barcodes: %d (%.2f%%)", 
-                  multiple_mapping_count, 
-                  100 * multiple_mapping_count / total_products))
-  
+  message(sprintf(
+    "Products with Unique Barcode: %d (%.2f%%)",
+    unique_mapping_count,
+    100 * unique_mapping_count / total_products
+  ))
+  message(sprintf(
+    "Products with Multiple Barcodes: %d (%.2f%%)",
+    multiple_mapping_count,
+    100 * multiple_mapping_count / total_products
+  ))
+
   return(summary_dt)
 }
 
@@ -65,31 +72,43 @@ check_barcode <- function(data_barcode) {
 #' @export
 check_product_coverage <- function(data_purchase, data_barcode) {
   # Ensure inputs are data.tables
-  if (!data.table::is.data.table(data_purchase)) data_purchase <- data.table::as.data.table(data_purchase)
-  if (!data.table::is.data.table(data_barcode)) data_barcode <- data.table::as.data.table(data_barcode)
-  
+  if (!data.table::is.data.table(data_purchase)) {
+    data_purchase <- data.table::as.data.table(data_purchase)
+  }
+  if (!data.table::is.data.table(data_barcode)) {
+    data_barcode <- data.table::as.data.table(data_barcode)
+  }
+
   # Check required columns
-  if (!"product_code" %in% names(data_purchase)) stop("Purchase data must have 'product_code' column.")
-  if (!"product" %in% names(data_barcode)) stop("Barcode data must have 'product' column.")
-  
+  if (!"product_code" %in% names(data_purchase)) {
+    stop("Purchase data must have 'product_code' column.")
+  }
+  if (!"product" %in% names(data_barcode)) {
+    stop("Barcode data must have 'product' column.")
+  }
+
   # Extract year from Date_of_purchase if not already present
   if (!"year" %in% names(data_purchase)) {
-      if ("Date_of_purchase" %in% names(data_purchase)) {
-          # Try to parse date. Assuming YYYY-MM-DD or similar standard format
-          # If it's integer YYYYMMDD, handle that too
-          if (is.numeric(data_purchase$Date_of_purchase)) {
-             # Assuming YYYYMMDD
-             data_purchase[, year := as.integer(substr(as.character(Date_of_purchase), 1, 4))]
-          } else {
-             data_purchase[, year := data.table::year(as.Date(Date_of_purchase))]
-          }
+    if ("Date_of_purchase" %in% names(data_purchase)) {
+      # Try to parse date. Assuming YYYY-MM-DD or similar standard format
+      # If it's integer YYYYMMDD, handle that too
+      if (is.numeric(data_purchase$Date_of_purchase)) {
+        # Assuming YYYYMMDD
+        data_purchase[,
+          year := as.integer(substr(as.character(Date_of_purchase), 1, 4))
+        ]
       } else {
-          warning("No 'year' or 'Date_of_purchase' column found. Yearly stats will be skipped.")
+        data_purchase[, year := data.table::year(as.Date(Date_of_purchase))]
       }
+    } else {
+      warning(
+        "No 'year' or 'Date_of_purchase' column found. Yearly stats will be skipped."
+      )
+    }
   }
 
   barcode_products <- unique(data_barcode$product)
-  
+
   # --- Overall Coverage ---
   purchase_products <- unique(data_purchase$product_code)
   n_purchase <- length(purchase_products)
@@ -98,7 +117,7 @@ check_product_coverage <- function(data_purchase, data_barcode) {
   n_missing <- n_purchase - n_matched
   missing_products <- setdiff(purchase_products, barcode_products)
   pct_covered <- if (n_purchase > 0) (n_matched / n_purchase) * 100 else 0
-  
+
   # Print Overall Report
   message("Product Code Coverage Summary:")
   message("-------------------------------")
@@ -106,27 +125,33 @@ check_product_coverage <- function(data_purchase, data_barcode) {
   message(sprintf("  Total Unique Products: %d", n_purchase))
   message(sprintf("  Matched: %d (%.2f%%)", n_matched, pct_covered))
   message(sprintf("  Missing: %d", n_missing))
-  
+
   # --- Yearly Coverage ---
   yearly_stats <- NULL
   if ("year" %in% names(data_purchase)) {
-      message("\nCoverage by Year:")
-      
-      # Calculate stats by year
-      yearly_stats <- data_purchase[, .(
-          total_products = data.table::uniqueN(product_code),
-          matched_products = length(intersect(unique(product_code), barcode_products))
-      ), by = year][order(year)]
-      
-      yearly_stats[, `:=`(
-          missing_products = total_products - matched_products,
-          pct_covered = (matched_products / total_products) * 100
-      )]
-      
-      # Print yearly stats
-      print(yearly_stats)
+    message("\nCoverage by Year:")
+
+    # Calculate stats by year
+    yearly_stats <- data_purchase[,
+      .(
+        total_products = data.table::uniqueN(product_code),
+        matched_products = length(intersect(
+          unique(product_code),
+          barcode_products
+        ))
+      ),
+      by = year
+    ][order(year)]
+
+    yearly_stats[, `:=`(
+      missing_products = total_products - matched_products,
+      pct_covered = (matched_products / total_products) * 100
+    )]
+
+    # Print yearly stats
+    print(yearly_stats)
   }
-  
+
   return(list(
     overall_stats = c(
       total_purchase_products = n_purchase,
@@ -137,4 +162,169 @@ check_product_coverage <- function(data_purchase, data_barcode) {
     yearly_stats = yearly_stats,
     missing_products = missing_products
   ))
+}
+
+#' Inspect Parquet Schema via DuckDB
+#'
+#' @description
+#' Inspects a Parquet file's schema using DuckDB, showing column names, types,
+#' and whether each column is nested (and thus dropped during loading).
+#'
+#' @param file_path Character string. Path to the Parquet file.
+#'   Defaults to "data/raw data/openfoodfacts/food.parquet".
+#' @param pattern Optional regex pattern to filter column names (case-insensitive).
+#'
+#' @return A data.table with columns: column_name, column_type, is_nested.
+#'
+#' @export
+inspect_parquet_schema <- function(
+  file_path = "data/raw data/openfoodfacts/food.parquet",
+  pattern = NULL
+) {
+  ddb_con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(ddb_con, shutdown = TRUE))
+
+  schema_query <- sprintf(
+    "DESCRIBE SELECT * FROM read_parquet('%s') LIMIT 0",
+    file_path
+  )
+  col_info <- data.table::as.data.table(DBI::dbGetQuery(ddb_con, schema_query))
+
+  # Identify nested columns
+  nested_patterns <- c("STRUCT", "MAP", "\\[\\]")
+  col_info[,
+    is_nested := grepl(
+      paste(nested_patterns, collapse = "|"),
+      column_type
+    )
+  ]
+
+  # Filter by pattern if provided
+  if (!is.null(pattern)) {
+    col_info <- col_info[grepl(pattern, column_name, ignore.case = TRUE)]
+  }
+
+  # Print summary
+  message(sprintf(
+    "Total columns: %d | Flat: %d | Nested: %d",
+    nrow(col_info),
+    sum(!col_info$is_nested),
+    sum(col_info$is_nested)
+  ))
+
+  return(col_info[, .(column_name, column_type, is_nested)])
+}
+
+#' Query Unique Values of a Column from JSONL via DuckDB
+#'
+#' @description
+#' Queries a JSONL file using DuckDB to get unique values and counts
+#' for a specified column, without loading the entire file into R.
+#'
+#' @param column_name Character string. The column to inspect.
+#' @param file_path Character string. Path to the JSONL file.
+#'   Defaults to "data/raw data/openfoodfacts/openfoodfacts-products.jsonl".
+#' @param top_n Integer. Number of top values to return, ordered by count.
+#'   Defaults to Inf.
+#' @param pattern Optional regex pattern to filter the values (case-insensitive, SQL ILIKE).
+#'
+#' @return A data.table with columns: value, n (count).
+#'
+#' @export
+query_jsonl_unique <- function(
+  column_name,
+  file_path = "data/raw data/openfoodfacts/openfoodfacts-products.jsonl",
+  top_n = Inf,
+  pattern = NULL
+) {
+  ddb_con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(ddb_con, shutdown = TRUE))
+
+  # Install and load JSON extension
+  DBI::dbExecute(ddb_con, "INSTALL json; LOAD json;")
+
+  # Build query
+  where_clause <- sprintf('WHERE "%s" IS NOT NULL', column_name)
+  if (!is.null(pattern)) {
+    where_clause <- sprintf(
+      "%s AND CAST(\"%s\" AS VARCHAR) ILIKE '%%%s%%'",
+      where_clause,
+      column_name,
+      pattern
+    )
+  }
+
+  limit_clause <- if (is.finite(top_n)) sprintf("LIMIT %d", top_n) else ""
+  query <- sprintf(
+    'SELECT "%s" AS value, COUNT(*) AS n FROM read_json_auto(\'%s\', sample_size=1000) %s GROUP BY "%s" ORDER BY n DESC %s',
+    column_name,
+    file_path,
+    where_clause,
+    column_name,
+    limit_clause
+  )
+
+  message(sprintf("Querying unique values of '%s'...", column_name))
+  result <- data.table::as.data.table(DBI::dbGetQuery(ddb_con, query))
+
+  message(sprintf("Returned %d unique values.", nrow(result)))
+  return(result)
+}
+
+#' Inspect JSONL Schema via DuckDB
+#'
+#' @description
+#' Inspects a JSONL file's schema using DuckDB, showing column names, types,
+#' and whether each column is nested.
+#'
+#' @param file_path Character string. Path to the JSONL file.
+#'   Defaults to "data/raw data/openfoodfacts/openfoodfacts-products.jsonl".
+#' @param pattern Optional regex pattern to filter column names (case-insensitive).
+#' @param sample_size Integer. Number of rows DuckDB samples to infer the schema.
+#'   Defaults to 1000.
+#'
+#' @return A data.table with columns: column_name, column_type, is_nested.
+#'
+#' @export
+inspect_jsonl_schema <- function(
+  file_path = "data/raw data/openfoodfacts/openfoodfacts-products.jsonl",
+  pattern = NULL,
+  sample_size = 1000
+) {
+  ddb_con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(ddb_con, shutdown = TRUE))
+
+  # Install and load JSON extension
+  DBI::dbExecute(ddb_con, "INSTALL json; LOAD json;")
+
+  schema_query <- sprintf(
+    "DESCRIBE SELECT * FROM read_json_auto('%s', sample_size=%d) LIMIT 0",
+    file_path,
+    sample_size
+  )
+  col_info <- data.table::as.data.table(DBI::dbGetQuery(ddb_con, schema_query))
+
+  # Identify nested columns
+  nested_patterns <- c("STRUCT", "MAP", "\\[\\]")
+  col_info[,
+    is_nested := grepl(
+      paste(nested_patterns, collapse = "|"),
+      column_type
+    )
+  ]
+
+  # Filter by pattern if provided
+  if (!is.null(pattern)) {
+    col_info <- col_info[grepl(pattern, column_name, ignore.case = TRUE)]
+  }
+
+  # Print summary
+  message(sprintf(
+    "Total columns: %d | Flat: %d | Nested: %d",
+    nrow(col_info),
+    sum(!col_info$is_nested),
+    sum(col_info$is_nested)
+  ))
+
+  return(col_info[, .(column_name, column_type, is_nested)])
 }

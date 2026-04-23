@@ -1,77 +1,4 @@
-#' Load Open Food Facts Data
-#'
-#' @description
-#' Loads the Open Food Facts products dataset from a JSONL file.
-#' Supports partial loading of the first few lines for inspection.
-#'
-#' @details
-#' The data is expected to be in JSONL (JSON Lines) format, where each line is a valid JSON object.
-#' The function uses `jsonlite` to parse the data.
-#'
-#' @param file_path Character string. The path to the JSONL file.
-#'   Defaults to "data/raw data/openfoodfacts/openfoodfacts-products.jsonl".
-#' @param n_max Numeric. The maximum number of lines to read.
-#'   Defaults to `Inf` (read the entire file). Set to a small integer (e.g., 100) to preview the data.
-#' @param force_cache Logical. If FALSE (default), attempts to load from cached FST file.
-#'   If TRUE or cache not found, loads from raw file and saves to cache (only if n_max is Inf).
-#'
-#' @return A data frame (or list, depending on JSON structure consistency) containing the product data.
-#'
-#' @export
-load_openfoodfacts_data <- function(
-    file_path = "data/raw data/openfoodfacts/openfoodfacts-products.jsonl",
-    n_max = Inf,
-    force_cache = FALSE
-) {
-    cache_path <- "data/raw data/raw fst/openfoodfacts_products.fst"
-
-    # Try loading from cache if appropriate
-    if (!force_cache && file.exists(cache_path) && !is.finite(n_max)) {
-        message("Loading cached Open Food Facts data...")
-        return(fst::read_fst(cache_path, as.data.table = TRUE))
-    }
-
-    if (!file.exists(file_path)) {
-        stop("File not found: ", file_path)
-    }
-
-    if (is.finite(n_max)) {
-        # Partial load
-        message(sprintf("Loading first %d lines from %s...", n_max, file_path))
-
-        # Read raw lines
-        lines <- readLines(
-            file_path,
-            n = n_max,
-            warn = FALSE,
-            encoding = "UTF-8"
-        )
-
-        # Parse using stream_in on a text connection
-        # stream_in is generally more robust for NDJSON than lapply(fromJSON)
-        data <- jsonlite::stream_in(textConnection(lines), verbose = FALSE)
-        data.table::setDT(data)
-    } else {
-        # Full load
-        message(sprintf("Loading all data from %s...", file_path))
-
-        # Open file connection
-        con <- file(file_path, "r", encoding = "UTF-8")
-        on.exit(close(con))
-
-        data <- jsonlite::stream_in(con, verbose = TRUE)
-        data.table::setDT(data)
-
-        # Save to cache
-        message("Saving to cache...")
-        if (!dir.exists(dirname(cache_path))) {
-            dir.create(dirname(cache_path), recursive = TRUE)
-        }
-        fst::write_fst(data, cache_path)
-    }
-
-    return(data)
-}
+# Load AiMark Data ----
 
 #' Load AiMark Barcode Mapping Data
 #'
@@ -248,4 +175,128 @@ load_purchase_data <- function(
     fst::write_fst(all_data, cache_path)
 
     return(all_data)
+}
+
+# Extract Open Food Facts data ----
+#' Extract fields from Open Food Facts MongoDB Dump
+#'
+#' @description
+#' Extracts specific fields from the Open Food Facts MongoDB dump.
+#' Checks if the data is already in MongoDB; if not, restores it from the dump file.
+#' Requires a running MongoDB instance.
+#'
+#' @param dump_path Character string. Path to the MongoDB dump file.
+#'   Defaults to "data/raw data/openfoodfacts/openfoodfacts-mongodbdump".
+#' @param fields Character vector. Fields to extract. Defaults to c("countries", "code").
+#' @param db_name Character string. Database name. Defaults to "off".
+#' @param collection_name Character string. Collection name. Defaults to "products".
+#' @param mongo_url Character string. MongoDB connection URL. Defaults to "mongodb://localhost".
+#' @param verbose Logical. Whether to print progress.
+#' @param force_cache Logical. If TRUE, ignore any existing fst cache for this
+#'   field set and re-query MongoDB. Defaults to FALSE.
+#'
+#' @return A data.table containing the extracted fields.
+#'
+#' @export
+extract_openfoodfacts_data <- function(
+    dump_path = "data/raw data/openfoodfacts/openfoodfacts-mongodbdump",
+    fields = c("countries", "code", "_id", "ean", "upc"),
+    db_name = "off",
+    collection_name = "products",
+    mongo_url = "mongodb://localhost:27018",
+    verbose = TRUE,
+    force_cache = FALSE
+) {
+    # Cache keyed on the requested field set — different fields, different cache file
+    fields_tag <- paste(sort(fields), collapse = "_") |>
+        gsub("[^A-Za-z0-9]+", "_", x = _)
+    cache_path <- file.path(
+        "data",
+        "raw data",
+        "raw fst",
+        sprintf("openfoodfacts_%s.fst", fields_tag)
+    )
+
+    if (!force_cache && file.exists(cache_path)) {
+        if (verbose) message("Loading cached Open Food Facts data...")
+        return(fst::read_fst(cache_path, as.data.table = TRUE))
+    }
+
+    # Check if file exists
+    if (!file.exists(dump_path)) {
+        stop("Dump file not found: ", dump_path)
+    }
+
+    # Connect to MongoDB
+    if (verbose) {
+        message("Connecting to MongoDB...")
+    }
+    con <- tryCatch(
+        mongolite::mongo(
+            collection = collection_name,
+            db = db_name,
+            url = mongo_url
+        ),
+        error = function(e) {
+            stop(
+                "Could not connect to MongoDB. Make sure it is running.\nError: ",
+                e$message
+            )
+        }
+    )
+
+    # Check if collection is empty
+    if (con$count() == 0) {
+        if (verbose) {
+            message("Collection is empty. Restoring from dump...")
+        }
+
+        # Construct mongorestore command
+        # Note: --archive expects the file path
+        cmd <- sprintf(
+            "mongorestore --archive='%s' --nsInclude=%s.%s --uri='%s'",
+            dump_path,
+            db_name,
+            collection_name,
+            mongo_url
+        )
+
+        if (verbose) {
+            message("Running: ", cmd)
+        }
+        ret <- system(cmd)
+
+        if (ret != 0) {
+            stop("mongorestore failed with exit code ", ret)
+        }
+    } else {
+        if (verbose) message("Collection exists. Skipping restore.")
+    }
+
+    # Construct fields projection
+    # mongolite expects a JSON string for fields, e.g., '{"countries": 1, "code": 1, "_id": 0}'
+    fields_list <- as.list(rep(1, length(fields)))
+    names(fields_list) <- fields
+    # Exclude _id unless requested
+    if (!"_id" %in% fields) {
+        fields_list[["_id"]] <- 0
+    }
+    fields_json <- jsonlite::toJSON(fields_list, auto_unbox = TRUE)
+
+    if (verbose) {
+        message("Extracting fields: ", paste(fields, collapse = ", "))
+    }
+
+    # Query data
+    # Use find() to get data. It returns a data.frame.
+    dt <- data.table::as.data.table(con$find(fields = fields_json))
+
+    # Save to cache for fast reloads across R sessions
+    if (verbose) message("Saving to cache: ", cache_path)
+    if (!dir.exists(dirname(cache_path))) {
+        dir.create(dirname(cache_path), recursive = TRUE)
+    }
+    fst::write_fst(dt, cache_path)
+
+    return(dt)
 }
