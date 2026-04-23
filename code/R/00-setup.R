@@ -29,13 +29,21 @@ packages <- c(
     "zoo",
     "geodist",
     "birk",
-    "jsonlite"
+    "jsonlite",
+    "arrow",
+    "duckdb",
+    "mongolite",
+    "qs2"
 )
 
-installed <- packages %in% rownames(installed.packages())
+if (!requireNamespace("pak", quietly = TRUE)) {
+    install.packages("pak")
+}
 
-if (any(!installed)) {
-    install.packages(packages[!installed], dependencies = TRUE)
+missing <- setdiff(packages, pak::pkg_status(packages)$package)
+
+if (length(missing) > 0) {
+    pak::pkg_install(missing, ask = FALSE)
 }
 
 invisible(lapply(packages, library, character.only = TRUE))
